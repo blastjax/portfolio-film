@@ -1,23 +1,21 @@
 {
   "name": "film-portfolio",
-  "version": "1.0.0",
-  "description": "Self-hosted photo portfolio: upload photos, strip metadata, store full resolution in SQLite.",
-  "main": "server.js",
-  "type": "commonjs",
+  "version": "2.0.0",
+  "description": "Self-hosted photo portfolio (Next.js): upload photos, strip metadata, store full resolution in SQLite.",
+  "private": true,
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
-  "license": "UNLICENSED",
   "engines": {
     "node": ">=22.5.0"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "multer": "^2.0.1",
+    "next": "^16.3.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "sharp": "^0.35.4"
-  },
-  "overrides": {
-    "qs": "^6.16.0"
   }
 }

@@ -1,17 +1,28 @@
-FROM node:22-bookworm-slim
-
+# ---- deps: install dependencies (cached unless package*.json changes) ----
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-
-# Install dependencies first so this layer is cached unless package*.json change
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
-# App source
-COPY db.js processImage.js auth.js server.js ./
-COPY public ./public
+# ---- builder: compile the Next.js app ----
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
 
-# SQLite data lives here — mounted as a volume in docker-compose.yml so it
-# survives container rebuilds.
+# ---- runner: minimal production image ----
+FROM node:22-bookworm-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# `output: 'standalone'` in next.config.js produces a self-contained
+# server.js plus a pruned node_modules (including sharp's native binary).
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# SQLite data (and the admin credentials file) live here — mounted as a
+# volume in docker-compose.yml so they survive container rebuilds.
 RUN mkdir -p /app/data
 
 ENV PORT=3000

@@ -1,6 +1,6 @@
 # Film Portfolio
 
-A small self-hosted website for hosting your photographs.
+A small self-hosted Next.js website for hosting your photographs.
 
 Every uploaded photo is automatically:
 - **Stripped of metadata** — the image is re-encoded, which drops EXIF/GPS/IPTC/XMP data (the EXIF *orientation* is read and baked into the pixels first, so rotated photos still display correctly).
@@ -24,10 +24,10 @@ Logging in sets an HTTP-only session cookie (30-day expiry, in-memory sessions �
 
 ```bash
 npm install
-npm start
+npm run dev
 ```
 
-Then open **http://localhost:3000**.
+Then open **http://localhost:3000**. For a production run instead: `npm run build && npm start`.
 
 ## Running with Docker
 
@@ -45,5 +45,5 @@ To stop it: `docker compose down`.
 
 - Data lives entirely in `data/portfolio.db` — back that one file up to back up the whole site.
 - Accepted formats: anything `sharp`/libvips can decode (JPEG, PNG, WebP, TIFF, GIF, AVIF, HEIC*). Output is always re-encoded as JPEG.
-- Max upload size: 40MB per photo (edit `limits.fileSize` in `server.js` to change).
+- Max upload size: 40MB per photo (edit `MAX_UPLOAD_BYTES` in `app/api/photos/route.js` to change).
 - Uploading, editing, and deleting require logging in at `/login` (see **Admin login** above); browsing the gallery does not. If you expose this beyond `localhost`, put it behind HTTPS (e.g. a reverse proxy) so the session cookie and password aren't sent in the clear.
