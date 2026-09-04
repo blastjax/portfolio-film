@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Film Portfolio',
+  title: '_luiprime portfolio',
   description: 'A self-hosted photo portfolio.',
 };
 

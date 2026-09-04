@@ -296,7 +296,11 @@ export default function HomePage() {
   return (
     <>
       <header className="site-header">
-        <h1>Film Portfolio</h1>
+        <h1>
+          <a href="https://www.instagram.com/_luiprime/" target="_blank" rel="noopener noreferrer">
+            _luiprime portfolio
+          </a>
+        </h1>
         <div className="header-actions">
           <button className={`btn${isAdmin ? '' : ' hidden'}`} onClick={handleLogout}>Log out</button>
           <button className={`btn btn-primary${isAdmin ? '' : ' hidden'}`} onClick={openUploadModal}>
