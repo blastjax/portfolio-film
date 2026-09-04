@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Log in — Film Portfolio</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <h1>Film Portfolio</h1>
+      <form id="loginForm">
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="passwordInput" name="password" autocomplete="current-password" autofocus required />
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary" id="loginBtn">Log in</button>
+          <span id="loginStatus" class="status"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const status = document.getElementById('loginStatus');
+    const loginBtn = document.getElementById('loginBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      loginBtn.disabled = true;
+      status.textContent = '';
+      status.className = 'status';
+
+      try {
+        const password = document.getElementById('passwordInput').value;
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Login failed.');
+        location.href = '/';
+      } catch (err) {
+        status.textContent = err.message;
+        status.className = 'status error';
+        loginBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+services:
+  film-portfolio:
+    build: .
+    image: film-portfolio:latest
+    container_name: film-portfolio
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - PORT=3000
+    volumes:
+      # Persist the SQLite database (with your full-resolution photos) on the host.
+      - ./data:/app/data
