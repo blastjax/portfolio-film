@@ -67,7 +67,7 @@ jobs:
         run: |
           cat > /tmp/deploy.sh <<'SCRIPT'
           set -e
-          cd ${{ secrets.APP_DIR }}
+          cd "${{ secrets.APP_DIR }}"
 
           # --ff-only: fail loudly on divergence instead of creating a merge
           # commit on the server or leaving a half-applied tree.
