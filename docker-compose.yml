@@ -1,13 +1,46 @@
 services:
-  film-portfolio:
-    build: .
-    image: film-portfolio:latest
-    container_name: film-portfolio
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
+  web:
+    restart: always
+    # image: pulled from GHCR on the Lightsail host (see .github/workflows/deploy.yml);
+    # the build: block below is only exercised by a local `docker compose build`.
+    image: ${WEB_IMAGE:-film-portfolio}:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
-      - PORT=3000
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    # No host port publish - only reachable through Caddy (see below) or, for
+    # local dev, via docker-compose.override.yml.
     volumes:
-      # Persist the SQLite database (with your full-resolution photos) on the host.
       - ./data:/app/data
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+      start_interval: 2s
+  caddy:
+    restart: always
+    image: caddy:2-alpine
+    # Sole public entry point: terminates TLS (auto-provisions and renews the
+    # Let's Encrypt cert for the domain in the Caddyfile) and reverse-proxies
+    # to the web service.
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

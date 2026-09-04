@@ -32,14 +32,14 @@ Then open **http://localhost:3000**. For a production run instead: `npm run buil
 ## Running with Docker
 
 ```bash
-docker compose up -d --build
+docker compose up --build web
 ```
 
-Then open **http://localhost:3000**. The SQLite database is bind-mounted to `./data` on the host, so photos survive container rebuilds/restarts — `docker compose down` (without `-v`; there's no named volume to remove anyway) is safe.
+Then open **http://localhost:3000**. The SQLite database is bind-mounted to `./data` on the host, so photos survive container rebuilds/restarts — `docker compose down` (without `-v`; there's no named volume to remove anyway) is safe. See [docker/README.md](docker/README.md) for the full picture, including the production (Caddy + GHCR) setup used by the deploy workflow below.
 
-If port 3000 is already taken on your machine, change the host side of the port mapping in `docker-compose.yml` (e.g. `"3010:3000"`) before running `up`.
+## Deploying (Lightsail + GitHub Actions)
 
-To stop it: `docker compose down`.
+Live at **https://portfolio.maiacruz.com**, hosted on an AWS Lightsail instance. Pushing to `main` builds the image on GitHub Actions and deploys it via SSH — see `.github/workflows/deploy.yml` and [docker/README.md](docker/README.md) for the required repo secrets. Caddy on the host handles TLS automatically (Let's Encrypt).
 
 ## Notes
 

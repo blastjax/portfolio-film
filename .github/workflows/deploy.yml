@@ -1,0 +1,126 @@
+name: Deploy to Lightsail
+run-name: Deploy to Lightsail (${{ github.event_name == 'workflow_dispatch' && 'manual' || github.ref_name }})
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  REGISTRY: ghcr.io
+  WEB_IMAGE: ghcr.io/${{ github.repository }}-web
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Built here instead of on the Lightsail host: the runner has far more
+      # RAM/CPU than the instance, so `next build` doesn't compete with the
+      # box's own memory limit at deploy time.
+      - name: Build and push web
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.WEB_IMAGE }}:latest
+            ${{ env.WEB_IMAGE }}:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.WEB_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.WEB_IMAGE }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
+          provenance: false
+          sbom: false
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    # One deploy at a time; queue rather than cancel so a run that already
+    # started updating the host is never interrupted half-way.
+    concurrency:
+      group: deploy-lightsail
+      cancel-in-progress: false
+    steps:
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy via SSH
+        run: |
+          cat > /tmp/deploy.sh <<'SCRIPT'
+          set -e
+          cd ${{ secrets.APP_DIR }}
+
+          # --ff-only: fail loudly on divergence instead of creating a merge
+          # commit on the server or leaving a half-applied tree.
+          git pull --ff-only origin ${{ github.ref_name }}
+
+          # The web container runs as uid 1001 (see Dockerfile), so the
+          # bind-mounted data directory has to be writable by it.
+          mkdir -p data
+          sudo chown -R 1001:1001 data
+
+          # This run's GITHUB_TOKEN only, not a durable secret on the box:
+          # it expires with the workflow run, so nothing long-lived to
+          # revoke or rotate here. Images already pulled keep running fine
+          # after it expires.
+          echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+          export WEB_IMAGE='${{ env.WEB_IMAGE }}'
+          export ADMIN_PASSWORD='${{ secrets.ADMIN_PASSWORD }}'
+          # --policy always: web defines both `image:` and `build:` (the
+          # build: block is for local `docker compose build` only), so a
+          # plain `pull` skips it as "buildable" and `up` then falls back to
+          # building `next build` on this box - slow enough to risk OOM on a
+          # 1GB instance. This flag forces the actual GHCR image to be
+          # pulled instead.
+          docker compose pull --policy always web
+          docker compose up -d --remove-orphans
+          docker image prune -f
+          docker logout ghcr.io
+
+          # Fail the job if the stack doesn't come up, so a red check means
+          # "not deployed" rather than "deployed and broken".
+          cid=$(docker compose ps -q web)
+          if [ -z "$cid" ]; then
+            echo "web container is not running" >&2
+            docker compose logs --tail 50 web >&2 || true
+            exit 1
+          fi
+          healthy=""
+          for _ in $(seq 1 100); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo unknown)
+            if [ "$status" = "healthy" ]; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$healthy" ]; then
+            echo "web did not become healthy (last status: ${status:-unknown})" >&2
+            docker compose logs --tail 50 web >&2 || true
+            exit 1
+          fi
+          echo "web is healthy"
+          SCRIPT
+
+          scp -i ~/.ssh/deploy_key /tmp/deploy.sh "ubuntu@${{ secrets.DEPLOY_HOST }}:/tmp/deploy.sh"
+          ssh -i ~/.ssh/deploy_key "ubuntu@${{ secrets.DEPLOY_HOST }}" 'bash /tmp/deploy.sh'

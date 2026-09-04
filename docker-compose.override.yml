@@ -1,0 +1,14 @@
+# Local-testing overrides, auto-merged by `docker compose` alongside
+# docker-compose.yml (which is tuned for the Lightsail/Caddy deploy and
+# publishes no host port for web — only reachable there through Caddy).
+#
+# This adds a direct host port so `web` is reachable without Caddy or a real
+# domain. Just run `docker compose up --build` from the repo root; delete or
+# rename this file if you ever need a plain prod-shaped run locally.
+services:
+  web:
+    ports:
+      - "3000:3000"
+  # caddy needs a real public domain for its automatic HTTPS and isn't useful
+  # locally; omit it from the run instead of starting it here:
+  #   docker compose up --build web
