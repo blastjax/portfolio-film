@@ -188,11 +188,16 @@ main { padding: 24px 32px 64px; }
   border-radius: 4px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.6);
   cursor: zoom-in;
+  user-select: none;
+  touch-action: none;
 }
 .lightbox img.zoomed {
   max-width: none;
   max-height: none;
-  cursor: zoom-out;
+  cursor: grab;
+}
+.lightbox img.zoomed:active {
+  cursor: grabbing;
 }
 .lightbox-caption {
   margin-top: 14px;

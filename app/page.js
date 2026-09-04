@@ -49,7 +49,10 @@ export default function HomePage() {
   const [uploading, setUploading] = useState(false);
 
   const lightboxRef = useRef(null);
+  const lightboxImgRef = useRef(null);
   const fileInputRef = useRef(null);
+  const dragStateRef = useRef(null);
+  const pendingZoomAnchorRef = useRef(null);
 
   async function loadGallery() {
     const res = await fetch('/api/photos');
@@ -105,13 +108,78 @@ export default function HomePage() {
     setEditing(false);
   }
 
-  function toggleZoom() {
-    setZoomed((z) => !z);
-    if (lightboxRef.current) {
-      lightboxRef.current.scrollTop = 0;
-      lightboxRef.current.scrollLeft = 0;
+  // Zoom in centered on wherever you click; while zoomed, press-and-drag
+  // pans around instead — only a click that didn't move toggles zoom off,
+  // so panning near the edge doesn't accidentally zoom back out.
+  const DRAG_THRESHOLD_PX = 4;
+
+  function handleImagePointerDown(e) {
+    e.preventDefault();
+    const container = lightboxRef.current;
+    const img = lightboxImgRef.current;
+    if (!container || !img) return;
+    img.setPointerCapture(e.pointerId);
+
+    const rect = img.getBoundingClientRect();
+    dragStateRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      scrollLeft: container.scrollLeft,
+      scrollTop: container.scrollTop,
+      moved: false,
+      clickFracX: (e.clientX - rect.left) / rect.width,
+      clickFracY: (e.clientY - rect.top) / rect.height,
+    };
+  }
+
+  function handleImagePointerMove(e) {
+    const state = dragStateRef.current;
+    const container = lightboxRef.current;
+    if (!state || !container) return;
+
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+    if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) state.moved = true;
+
+    if (zoomed && state.moved) {
+      container.scrollLeft = state.scrollLeft - dx;
+      container.scrollTop = state.scrollTop - dy;
     }
   }
+
+  function handleImagePointerUp() {
+    const state = dragStateRef.current;
+    dragStateRef.current = null;
+    if (!state || state.moved) return; // a drag/pan, not a click — leave zoom as-is
+
+    if (zoomed) {
+      setZoomed(false);
+    } else {
+      pendingZoomAnchorRef.current = { fracX: state.clickFracX, fracY: state.clickFracY };
+      setZoomed(true);
+    }
+  }
+
+  // Applies the click-anchored scroll position once the image has actually
+  // grown to full size, and resets scroll when zooming/closing out.
+  useEffect(() => {
+    const container = lightboxRef.current;
+    if (!container) return;
+
+    if (zoomed) {
+      const anchor = pendingZoomAnchorRef.current;
+      pendingZoomAnchorRef.current = null;
+      requestAnimationFrame(() => {
+        const img = lightboxImgRef.current;
+        if (!anchor || !img || !container) return;
+        container.scrollLeft = Math.max(0, img.offsetLeft + anchor.fracX * img.naturalWidth - container.clientWidth / 2);
+        container.scrollTop = Math.max(0, img.offsetTop + anchor.fracY * img.naturalHeight - container.clientHeight / 2);
+      });
+    } else {
+      container.scrollLeft = 0;
+      container.scrollTop = 0;
+    }
+  }, [zoomed]);
 
   async function handleDelete() {
     if (!lightboxPhoto) return;
@@ -325,11 +393,15 @@ export default function HomePage() {
         {lightboxPhoto && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
+            ref={lightboxImgRef}
             className={zoomed ? 'zoomed' : ''}
             src={`/api/photos/${lightboxPhoto.id}/full`}
             alt={lightboxPhoto.title}
-            title={zoomed ? 'Click to zoom out' : 'Click to zoom in to full size'}
-            onClick={(e) => { e.stopPropagation(); toggleZoom(); }}
+            title={zoomed ? 'Drag to pan, click to zoom out' : 'Click to zoom in'}
+            draggable={false}
+            onPointerDown={handleImagePointerDown}
+            onPointerMove={handleImagePointerMove}
+            onPointerUp={handleImagePointerUp}
           />
         )}
 
