@@ -381,7 +381,7 @@ export default function HomePage() {
       {/* Lightbox */}
       <div
         ref={lightboxRef}
-        className={`lightbox${lightboxPhoto ? '' : ' hidden'}`}
+        className={`lightbox${lightboxPhoto ? '' : ' hidden'}${zoomed ? ' zoomed' : ''}`}
         onClick={(e) => { if (e.target === e.currentTarget) closeLightbox(); }}
       >
         <div className="lightbox-toolbar">
