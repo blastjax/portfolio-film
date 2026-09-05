@@ -26,10 +26,26 @@ function MonthOptions() {
   );
 }
 
+// Small "stacked photos" icon used to mark a gallery card as a group.
+function GroupIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="7" width="14" height="14" rx="2" />
+      <path d="M7 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2" />
+    </svg>
+  );
+}
+
+function groupCover(group) {
+  return group.photos.find((p) => p.id === group.cover_photo_id) || group.photos[0];
+}
+
 export default function HomePage() {
-  const [photos, setPhotos] = useState([]);
+  const [items, setItems] = useState([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loaded, setLoaded] = useState(false);
+
+  const [groupView, setGroupView] = useState(null);
 
   const [lightboxPhoto, setLightboxPhoto] = useState(null);
   const [zoomed, setZoomed] = useState(false);
@@ -40,8 +56,8 @@ export default function HomePage() {
   const [editStatus, setEditStatus] = useState({ text: '', type: '' });
 
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadPreview, setUploadPreview] = useState(null);
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadPreviews, setUploadPreviews] = useState([]);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadYear, setUploadYear] = useState('');
   const [uploadMonth, setUploadMonth] = useState('');
@@ -56,7 +72,15 @@ export default function HomePage() {
 
   async function loadGallery() {
     const res = await fetch('/api/photos');
-    setPhotos(await res.json());
+    const data = await res.json();
+    setItems(data);
+    // Keep an open group view in sync with the fresh data (title/date/cover
+    // edits reflected, or the group closed out if it no longer exists —
+    // e.g. its last photo was just deleted).
+    setGroupView((prev) => {
+      if (!prev) return prev;
+      return data.find((it) => it.type === 'group' && it.id === prev.id) || null;
+    });
   }
 
   async function checkAuth() {
@@ -76,14 +100,16 @@ export default function HomePage() {
 
   useEffect(() => {
     function onKeyDown(e) {
-      if (e.key === 'Escape') {
-        closeLightbox();
-        closeUploadModal();
-      }
+      if (e.key !== 'Escape') return;
+      // Close whichever layer is on top first: lightbox, then the group
+      // view underneath it, then the upload modal.
+      if (lightboxPhoto) { closeLightbox(); return; }
+      if (groupView) { closeGroupView(); return; }
+      closeUploadModal();
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [lightboxPhoto, groupView]);
 
   // ---- Auth ------------------------------------------------------------
 
@@ -92,6 +118,38 @@ export default function HomePage() {
     setIsAdmin(false);
     closeUploadModal();
     closeLightbox();
+    closeGroupView();
+  }
+
+  // ---- Groups ------------------------------------------------------------
+
+  function openGroup(group) {
+    setGroupView(group);
+  }
+
+  function closeGroupView() {
+    setGroupView(null);
+  }
+
+  async function handleSetCover(photoId) {
+    if (!groupView) return;
+    try {
+      const res = await fetch(`/api/groups/${groupView.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cover_photo_id: photoId }),
+      });
+      if (res.status === 401) {
+        alert('Your session expired. Please log in again.');
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to set cover.');
+      setGroupView((prev) => (prev ? { ...prev, cover_photo_id: photoId } : prev));
+      loadGallery();
+    } catch (err) {
+      alert(err.message);
+    }
   }
 
   // ---- Lightbox ----------------------------------------------------------
@@ -241,8 +299,8 @@ export default function HomePage() {
   // ---- Upload -----------------------------------------------------------
 
   function openUploadModal() {
-    setUploadFile(null);
-    setUploadPreview(null);
+    setUploadFiles([]);
+    setUploadPreviews([]);
     setUploadTitle('');
     setUploadYear('');
     setUploadMonth('');
@@ -256,17 +314,20 @@ export default function HomePage() {
   }
 
   function handleFileChange(e) {
-    const file = e.target.files[0];
-    setUploadFile(file || null);
-    setUploadPreview(file ? URL.createObjectURL(file) : null);
+    const files = Array.from(e.target.files || []);
+    setUploadFiles(files);
+    setUploadPreviews(files.map((file) => URL.createObjectURL(file)));
   }
 
   async function handleUploadSubmit(e) {
     e.preventDefault();
-    if (!uploadFile) return;
+    if (uploadFiles.length === 0) return;
 
     setUploading(true);
-    setUploadStatus({ text: 'Uploading & processing…', type: '' });
+    setUploadStatus({
+      text: uploadFiles.length > 1 ? `Uploading ${uploadFiles.length} photos…` : 'Uploading & processing…',
+      type: '',
+    });
 
     try {
       const year = uploadYear.trim();
@@ -274,7 +335,7 @@ export default function HomePage() {
       if (month && !year) throw new Error('Enter a year along with the month.');
 
       const formData = new FormData();
-      formData.set('photo', uploadFile);
+      for (const file of uploadFiles) formData.append('photo', file);
       formData.set('title', uploadTitle);
       formData.set('photo_date', year ? (month ? `${year}-${month}` : year) : '');
 
@@ -311,21 +372,43 @@ export default function HomePage() {
 
       <main>
         {loaded && (
-          <section className={`empty${photos.length > 0 ? ' hidden' : ''}`}>
+          <section className={`empty${items.length > 0 ? ' hidden' : ''}`}>
             <p>No photos yet.</p>
           </section>
         )}
         <div className="gallery">
-          {photos.map((photo) => (
-            <div key={photo.id} className="card" onClick={() => openLightbox(photo)}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img loading="lazy" src={`/api/photos/${photo.id}/thumb`} alt={photo.title} />
-              <div className="meta">
-                <span className="title">{photo.title}</span>
-                <span className="date">{formatDate(photo.photo_date)}</span>
+          {items.map((item) => {
+            if (item.type === 'group') {
+              const cover = groupCover(item);
+              return (
+                <div key={`group-${item.id}`} className="gallery-item is-group">
+                  <div className="stack-layer stack-layer-2" aria-hidden="true" />
+                  <div className="stack-layer stack-layer-1" aria-hidden="true" />
+                  <div className="card" onClick={() => openGroup(item)}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img loading="lazy" src={`/api/photos/${cover.id}/thumb`} alt={cover.title} />
+                    <span className="group-badge"><GroupIcon /> {item.photos.length}</span>
+                    <div className="meta">
+                      <span className="title">{cover.title}</span>
+                      <span className="date">{formatDate(cover.photo_date)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div key={`photo-${item.id}`} className="gallery-item">
+                <div className="card" onClick={() => openLightbox(item)}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img loading="lazy" src={`/api/photos/${item.id}/thumb`} alt={item.title} />
+                  <div className="meta">
+                    <span className="title">{item.title}</span>
+                    <span className="date">{formatDate(item.photo_date)}</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </main>
 
@@ -336,12 +419,23 @@ export default function HomePage() {
           <h2>Upload photo</h2>
           <form onSubmit={handleUploadSubmit}>
             <label className="field">
-              <span>Photo file</span>
-              <input ref={fileInputRef} type="file" accept="image/*" required onChange={handleFileChange} />
+              <span>Photo file(s)</span>
+              <input ref={fileInputRef} type="file" accept="image/*" multiple required onChange={handleFileChange} />
             </label>
-            {uploadPreview && (
+            {uploadFiles.length > 1 && (
+              <p className="field-hint">{uploadFiles.length} photos selected — they’ll be grouped together as one card.</p>
+            )}
+            {uploadPreviews.length === 1 && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img className="file-preview" src={uploadPreview} alt="Selected preview" />
+              <img className="file-preview" src={uploadPreviews[0]} alt="Selected preview" />
+            )}
+            {uploadPreviews.length > 1 && (
+              <div className="upload-previews">
+                {uploadPreviews.map((src, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} className="file-preview" src={src} alt={`Selected preview ${i + 1}`} />
+                ))}
+              </div>
             )}
 
             <label className="field">
@@ -379,6 +473,37 @@ export default function HomePage() {
               <span className={`status${uploadStatus.type ? ' ' + uploadStatus.type : ''}`}>{uploadStatus.text}</span>
             </div>
           </form>
+        </div>
+      </div>
+
+      {/* Group view: all photos in a group, pick which one is the cover */}
+      <div className={`modal group-modal${groupView ? '' : ' hidden'}`} onClick={(e) => { if (e.target === e.currentTarget) closeGroupView(); }}>
+        <div className="modal-card group-modal-card">
+          <button className="modal-close" aria-label="Close" onClick={closeGroupView}>&times;</button>
+          {groupView && (
+            <>
+              <h2>{groupView.photos.length} photos</h2>
+              <div className="group-grid">
+                {groupView.photos.map((photo) => (
+                  <div key={photo.id} className={`group-thumb${photo.id === groupView.cover_photo_id ? ' is-cover' : ''}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img loading="lazy" src={`/api/photos/${photo.id}/thumb`} alt={photo.title} onClick={() => openLightbox(photo)} />
+                    {photo.id === groupView.cover_photo_id ? (
+                      <span className="cover-badge">Cover</span>
+                    ) : isAdmin && (
+                      <button
+                        type="button"
+                        className="set-cover-btn"
+                        onClick={(e) => { e.stopPropagation(); handleSetCover(photo.id); }}
+                      >
+                        Set as cover
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

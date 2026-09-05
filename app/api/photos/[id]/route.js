@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getPhoto, updatePhoto, deletePhoto } from '../../../../lib/photos';
+import { getPhoto, updatePhoto, deletePhotoCascade } from '../../../../lib/photos';
 import { validatePhotoDate } from '../../../../lib/validation';
 import { isAuthenticated } from '../../../../lib/auth';
 
@@ -35,7 +35,7 @@ export async function DELETE(request, { params }) {
   }
 
   const { id } = await params;
-  const info = deletePhoto(id);
+  const info = deletePhotoCascade(id);
   if (info.changes === 0) return new NextResponse(null, { status: 404 });
   return new NextResponse(null, { status: 204 });
 }

@@ -9,8 +9,8 @@ export async function GET(request, { params }) {
 
   try {
     const thumb = await sharp(photo.image)
-      .resize({ width: 480, height: 480, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
+      .resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82 })
       .toBuffer();
 
     return new Response(thumb, {
