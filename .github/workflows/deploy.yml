@@ -67,7 +67,20 @@ jobs:
         run: |
           cat > /tmp/deploy.sh <<'SCRIPT'
           set -e
-          cd "${{ secrets.APP_DIR }}"
+          APP_DIR='${{ secrets.APP_DIR }}'
+
+          # First deploy onto a fresh host: check the repo out in place (the
+          # repo is public, so no credentials are needed). `init` + `checkout`
+          # rather than `clone` so it also works on a directory that already
+          # exists - e.g. one the photo library's data/ was copied into first.
+          if [ ! -d "$APP_DIR/.git" ]; then
+            mkdir -p "$APP_DIR"
+            git -C "$APP_DIR" init -q
+            git -C "$APP_DIR" remote add origin 'https://github.com/${{ github.repository }}.git'
+            git -C "$APP_DIR" fetch -q origin '${{ github.ref_name }}'
+            git -C "$APP_DIR" checkout -q -B '${{ github.ref_name }}' 'origin/${{ github.ref_name }}'
+          fi
+          cd "$APP_DIR"
 
           # --ff-only: fail loudly on divergence instead of creating a merge
           # commit on the server or leaving a half-applied tree.
@@ -77,6 +90,32 @@ jobs:
           # bind-mounted data directory has to be writable by it.
           mkdir -p data
           sudo chown -R 1001:1001 data
+
+          # On the shared Lightsail host, the blastjax repo's deploy runs an edge
+          # proxy that fronts every site there and owns ports 80/443; its
+          # /srv/edge/bin/edge-install helper is how this deploy knows it's on
+          # that host. docker-compose.edge.yml then joins web to the edge network
+          # and keeps this stack's own caddy off. Anywhere else (a host running
+          # only this stack) it deploys standalone with its own caddy, as before.
+          if [ -x /srv/edge/bin/edge-install ]; then
+            EDGE=1
+            compose() { docker compose -f docker-compose.yml -f docker-compose.edge.yml "$@"; }
+            docker network inspect edge >/dev/null 2>&1 || docker network create edge
+          else
+            EDGE=""
+            compose() { docker compose "$@"; }
+          fi
+
+          # A private docker config for this run's GHCR login: on the shared host
+          # the other repos' deploys log in and out too, and with a shared
+          # ~/.docker/config.json one of them logging out (or in with its own
+          # token) mid-pull would break this run's pull. cli-plugins is linked
+          # in so a compose plugin installed per-user is still found.
+          export DOCKER_CONFIG="$(mktemp -d)"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          if [ -d "$HOME/.docker/cli-plugins" ]; then
+            ln -s "$HOME/.docker/cli-plugins" "$DOCKER_CONFIG/cli-plugins"
+          fi
 
           # This run's GITHUB_TOKEN only, not a durable secret on the box:
           # it expires with the workflow run, so nothing long-lived to
@@ -92,17 +131,25 @@ jobs:
           # building `next build` on this box - slow enough to risk OOM on a
           # 1GB instance. This flag forces the actual GHCR image to be
           # pulled instead.
-          docker compose pull --policy always web
-          docker compose up -d --remove-orphans
+          compose pull --policy always web
+          compose up -d --remove-orphans
+          if [ -n "$EDGE" ]; then
+            # Removes the caddy a standalone deploy left behind, if any, so it
+            # can't hold ports 80/443 against the edge proxy.
+            compose rm -sf caddy
+            # Adds/updates this site's block and hot-reloads the proxy; rolled
+            # back (and the deploy failed) if Caddy rejects it.
+            /srv/edge/bin/edge-install sites/portfolio.caddy docker/Caddyfile
+          fi
           docker image prune -f
           docker logout ghcr.io
 
           # Fail the job if the stack doesn't come up, so a red check means
           # "not deployed" rather than "deployed and broken".
-          cid=$(docker compose ps -q web)
+          cid=$(compose ps -q web)
           if [ -z "$cid" ]; then
             echo "web container is not running" >&2
-            docker compose logs --tail 50 web >&2 || true
+            compose logs --tail 50 web >&2 || true
             exit 1
           fi
           healthy=""
@@ -116,10 +163,25 @@ jobs:
           done
           if [ -z "$healthy" ]; then
             echo "web did not become healthy (last status: ${status:-unknown})" >&2
-            docker compose logs --tail 50 web >&2 || true
+            compose logs --tail 50 web >&2 || true
             exit 1
           fi
           echo "web is healthy"
+
+          # On the shared host, also confirm the edge proxy is up and reaches
+          # this site through the edge network by the alias docker/Caddyfile
+          # proxies to.
+          if [ -n "$EDGE" ]; then
+            if [ "$(docker inspect -f '{{.State.Running}}' edge-caddy 2>/dev/null || true)" != "true" ]; then
+              echo "edge-caddy is not running - deploy blastjax to (re)start the edge proxy" >&2
+              exit 1
+            fi
+            if ! docker exec edge-caddy wget -q -T 10 -O /dev/null http://portfolio-web:3000/; then
+              echo "edge-caddy cannot reach portfolio-web:3000" >&2
+              exit 1
+            fi
+            echo "edge-caddy is running and reaches portfolio-web"
+          fi
           SCRIPT
 
           scp -i ~/.ssh/deploy_key /tmp/deploy.sh "ubuntu@${{ secrets.DEPLOY_HOST }}:/tmp/deploy.sh"

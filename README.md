@@ -39,7 +39,7 @@ Then open **http://localhost:3000**. The SQLite database is bind-mounted to `./d
 
 ## Deploying (Lightsail + GitHub Actions)
 
-Live at **https://portfolio.maiacruz.com**, hosted on an AWS Lightsail instance. Pushing to `main` builds the image on GitHub Actions and deploys it via SSH — see `.github/workflows/deploy.yml` and [docker/README.md](docker/README.md) for the required repo secrets. Caddy on the host handles TLS automatically (Let's Encrypt).
+Live at **https://portfolio.maiacruz.com**, hosted on an AWS Lightsail instance (shared with the `blastjax` and `icrc` sites, behind one Caddy — see [docker/README.md](docker/README.md)). Pushing to `main` builds the image on GitHub Actions and deploys it via SSH — see `.github/workflows/deploy.yml` and [docker/README.md](docker/README.md) for the required repo secrets. Caddy on the host handles TLS automatically (Let's Encrypt).
 
 ## Notes
 
