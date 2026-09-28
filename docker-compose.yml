@@ -11,6 +11,12 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     # No host port publish - only reachable through Caddy (see below) or, for
     # local dev, via docker-compose.override.yml.
+    # portfolio-web is the name docker/Caddyfile proxies to. It's unique, unlike
+    # `web`, so the same site block also works on the shared edge network
+    # (docker-compose.edge.yml).
+    networks:
+      default:
+        aliases: [portfolio-web]
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -29,7 +35,9 @@ services:
     image: caddy:2-alpine
     # Sole public entry point: terminates TLS (auto-provisions and renews the
     # Let's Encrypt cert for the domain in the Caddyfile) and reverse-proxies
-    # to the web service.
+    # to the web service. Only for a host running this stack on its own: on
+    # the shared Lightsail host the deploy adds docker-compose.edge.yml, which
+    # switches this off in favour of the edge proxy fronting every site there.
     ports:
       - "80:80"
       - "443:443"

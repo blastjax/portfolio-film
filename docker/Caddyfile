@@ -1,4 +1,9 @@
+# portfolio-film's site block. On the shared Lightsail host it runs inside
+# blastjax's edge proxy (installed as /srv/edge/caddy/sites/portfolio.caddy);
+# on a host running only this stack it is the whole config of this repo's own
+# caddy service. It proxies to the portfolio-web alias rather than `web`
+# because the edge network is shared and every app there has a `web` service.
 portfolio.maiacruz.com {
 	encode gzip
-	reverse_proxy web:3000
+	reverse_proxy portfolio-web:3000
 }
